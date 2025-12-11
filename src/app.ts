@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import GlobalErrorHandler from "./app/middlewares/globalErrorHandler";
 
 dotenv.config();
 
@@ -15,6 +16,6 @@ app.get("/health", (req, res) => {
   res.status(200).send("OK");
 });
 
-
+app.use(GlobalErrorHandler);
 
 export default app;
