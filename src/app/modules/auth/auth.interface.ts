@@ -1,3 +1,4 @@
+// auth.interface.ts
 export interface SignUpRequest {
   name: string;
   email: string;
@@ -22,17 +23,15 @@ export interface LoginRequest {
 }
 
 export interface SocialLoginRequest {
-  provider: 'google' | 'apple';
+  provider: "google" | "apple";
   token: string;
 }
-
-// === DTOs for Responses ===
 
 export interface User {
   id: string;
   name: string;
   email: string;
-  location?: string;
+  location?: string | undefined;
   isEmailVerified: boolean;
 }
 
@@ -57,18 +56,4 @@ export interface VerifyEmailResponse {
 export interface SetLocationResponse {
   success: boolean;
   user: User;
-}
-
-// === Authentication Service Interface ===
-
-export interface AuthService {
-  signUp(data: SignUpRequest): Promise<SignUpResponse>;
-
-  verifyEmail(data: VerifyEmailRequest): Promise<VerifyEmailResponse>;
-
-  setLocation(data: SetLocationRequest): Promise<SetLocationResponse>;
-
-  login(data: LoginRequest): Promise<AuthResponse>;
-
-  socialLogin(data: SocialLoginRequest): Promise<AuthResponse>;
 }

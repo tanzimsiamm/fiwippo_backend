@@ -6,7 +6,7 @@
     const missingFields: string[] = [];
   
     while ((match = missingFieldsRegex.exec(errorMessage)) !== null) {
-      missingFields.push(match[1]);
+      missingFields.push(match[1]!);
     }
   
     // Parse invalid value errors
@@ -15,9 +15,9 @@
     const invalidValues: string[] = [];
   
     while ((match = invalidValueRegex.exec(errorMessage)) !== null) {
-      const field = match[1];
-      const expectedType = match[2];
-      const providedValue = match[3];
+      const field = match[1]!;
+      const expectedType = match[2]!;
+      const providedValue = match[3]!;
       invalidValues.push(
         `${field}: Expected ${expectedType}, provided ${providedValue}`
       );
