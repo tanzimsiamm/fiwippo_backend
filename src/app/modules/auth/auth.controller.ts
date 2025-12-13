@@ -3,7 +3,9 @@ import httpStatus from "http-status";
 import { authServices } from "./auth.service";
 import catchAsync from "../../utils/catchAsync";
 import { sendSuccessResponse } from "../../utils/SendResponse";
+import { IAuthRequest } from "../../interface/common";
 
+// Signup
 const signUp = catchAsync(async (req: Request, res: Response) => {
   const result = await authServices.signUp(req.body);
 
@@ -14,6 +16,7 @@ const signUp = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Email Verification
 const verifyEmail = catchAsync(async (req: Request, res: Response) => {
   const result = await authServices.verifyEmail(req.body);
 
@@ -24,7 +27,8 @@ const verifyEmail = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-const setLocation = catchAsync(async (req: Request, res: Response) => {
+// Set Location
+const setLocation = catchAsync(async (req: IAuthRequest, res: Response) => {
   const result = await authServices.setLocation({
     userId: req.user!.userId,
     location: req.body.location,
@@ -37,6 +41,7 @@ const setLocation = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+//  Login
 const login = catchAsync(async (req: Request, res: Response) => {
   const result = await authServices.login(req.body);
 
@@ -47,6 +52,7 @@ const login = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Social Login
 const socialLogin = catchAsync(async (req: Request, res: Response) => {
   const result = await authServices.socialLogin(req.body);
 
@@ -57,10 +63,45 @@ const socialLogin = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+//  Password Reset Flow
+const forgotPassword = catchAsync(async (req: Request, res: Response) => {
+  const result = await authServices.forgotPassword(req.body.email);
+
+  sendSuccessResponse(res, {
+    statusCode: httpStatus.OK,
+    message: result.message,
+    data: result,
+  });
+});
+
+const verifyResetOtp = catchAsync(async (req: Request, res: Response) => {
+  const result = await authServices.verifyResetOtp(req.body);
+
+  sendSuccessResponse(res, {
+    statusCode: httpStatus.OK,
+    message: result.message,
+    data: result,
+  });
+});
+
+const resetPassword = catchAsync(async (req: Request, res: Response) => {
+  const result = await authServices.resetPassword(req.body);
+
+  sendSuccessResponse(res, {
+    statusCode: httpStatus.OK,
+    message: result.message,
+    data: result,
+  });
+});
+
+// Export
 export const authController = {
   signUp,
   verifyEmail,
   setLocation,
   login,
   socialLogin,
+  forgotPassword,
+  verifyResetOtp,
+  resetPassword,
 };

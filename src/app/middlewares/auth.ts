@@ -3,9 +3,6 @@ import { IAuthRequest } from "../interface/common";
 import ApiError from "../errors/ApiError";
 import { verifyToken } from "../utils/jwt.util";
 
-/**
- * Authenticate user using JWT token
- */
 export const auth = (
   req: IAuthRequest,
   res: Response,
@@ -14,21 +11,19 @@ export const auth = (
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!authHeader?.startsWith("Bearer ")) {
       throw new ApiError(401, "No token provided. Please login.");
     }
 
     const token = authHeader.split(" ")[1];
     const decoded = verifyToken(token as string);
 
-    // Attach user to request
     req.user = {
-  userId: decoded.userId,
-  email: decoded.email,
-  organizationId: decoded.organizationId,
-  role: decoded.role,
-};
-
+      userId: decoded.userId,
+      email: decoded.email,
+      organizationId: decoded.organizationId,
+      role: decoded.role,
+    };
 
     next();
   } catch (error: any) {

@@ -260,7 +260,9 @@ const forgotPassword = async (
 
 const verifyResetOtp = async (
   data: VerifyResetOtpRequest
-): Promise<{ isValid: boolean }> => {
+): Promise<{
+  message: string; isValid: boolean 
+}> => {
   const email = data.email.toLowerCase().trim();
   const user = await prisma.user.findUnique({ where: { email } });
 
@@ -278,7 +280,7 @@ const verifyResetOtp = async (
     throw new ApiError(httpStatus.BAD_REQUEST, "Invalid reset code");
   }
 
-  return { isValid: true };
+  return { message: "Reset code verified successfully", isValid: true };
 };
 
 const resetPassword = async (
