@@ -20,7 +20,6 @@
 - [Technology Stack](#-technology-stack)
 - [Authentication Flow](#-authentication-flow)
 - [Error Handling](#-error-handling)
-- [Next Steps](#-next-steps)
 
 ---
 
