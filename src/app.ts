@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
-import mongoSanitize from "express-mongo-sanitize"; // <-- Mongo sanitization
+import mongoSanitize from "express-mongo-sanitize";
 
 import router from "./app/routes";
 import GlobalErrorHandler from "./app/middlewares/globalErrorHandler";

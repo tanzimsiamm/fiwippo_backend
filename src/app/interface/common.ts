@@ -33,3 +33,10 @@ export interface IErrorResponse {
   errorMessages?: Array<{ path: string; message: string }>;
   stack?: string;
 }
+
+export type TokenType = "access" | "refresh";
+
+export interface GenerateTokenOptions {
+  type?: TokenType;
+  expiresIn?: string | number;
+}

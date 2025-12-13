@@ -1,8 +1,7 @@
-import bcrypt from "bcryptjs";
 import httpStatus from "http-status";
 import prisma from "../../lib/prisma";
 import ApiError from "../../errors/ApiError";
-import { generateToken } from "../../utils/jwt.util";
+import { generateTokenPair } from "../../utils/jwt.util";
 import { hashPassword, comparePassword } from "../../utils/bcrypt.util";
 import {
   SignUpRequest,
@@ -13,24 +12,19 @@ import {
   AuthResponse,
   SocialLoginRequest,
   SetLocationRequest,
+  ForgotPasswordRequest,
+  VerifyResetOtpRequest,
+  ResetPasswordRequest,
 } from "./auth.interface";
+import { buildAuthPayload, generateVerificationCode, sendPasswordResetEmail, sendVerificationEmail } from "../../helpers";
 
-// --- Helpers ---
-const generateVerificationCode = (): string => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-const sendVerificationEmail = async (email: string, code: string) => {
-  // TODO: Integrate actual email service (AWS SES, SendGrid, etc.)
-  console.log(`[DEV] Verification code for ${email}: ${code}`);
-};
-
-// --- Services ---
+/* -------------------------------------------------------------------------- */
+/*                                   Services                                 */
+/* -------------------------------------------------------------------------- */
 
 const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
   const email = data.email.toLowerCase().trim();
 
-  // 1. Validate Organization (Critical for Multi-tenancy)
   const organization = await prisma.organization.findUnique({
     where: { slug: data.orgSlug },
   });
@@ -39,31 +33,25 @@ const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
     throw new ApiError(httpStatus.NOT_FOUND, "Organization not found");
   }
 
-  // 2. Check if user exists (globally or per-org depending on need, here we check global email)
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
-  });
-
+  const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
     throw new ApiError(httpStatus.CONFLICT, "Email already exists");
   }
 
-  // 3. Prepare data
-  const hashedPassword = await hashPassword(data.password);
+  const passwordHash = await hashPassword(data.password);
   const verificationCode = generateVerificationCode();
-  const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+  const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
-  // 4. Create User
   const user = await prisma.user.create({
     data: {
-      organizationId: organization.id, // Linked to found organization
+      organizationId: organization.id,
       name: data.name || null,
       email,
-      passwordHash: hashedPassword, // Matches schema
+      passwordHash,
+      role: "USER",
       isEmailVerified: false,
       verificationCode,
       verificationCodeExpiry,
-      role: "USER",
     },
   });
 
@@ -76,15 +64,16 @@ const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
   };
 };
 
-const verifyEmail = async (data: VerifyEmailRequest): Promise<VerifyEmailResponse> => {
+const verifyEmail = async (
+  data: VerifyEmailRequest
+): Promise<VerifyEmailResponse> => {
   const email = data.email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({ where: { email } });
-
   if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
-  if (user.isEmailVerified) throw new ApiError(httpStatus.BAD_REQUEST, "Email already verified");
+  if (user.isEmailVerified)
+    throw new ApiError(httpStatus.BAD_REQUEST, "Email already verified");
 
-  // Check code validity
   if (
     !user.verificationCode ||
     !user.verificationCodeExpiry ||
@@ -97,7 +86,6 @@ const verifyEmail = async (data: VerifyEmailRequest): Promise<VerifyEmailRespons
     throw new ApiError(httpStatus.BAD_REQUEST, "Invalid verification code");
   }
 
-  // Update User
   const updatedUser = await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -107,23 +95,12 @@ const verifyEmail = async (data: VerifyEmailRequest): Promise<VerifyEmailRespons
     },
   });
 
-  // Generate Tokens
-  const payload = {
-    userId: updatedUser.id,
-    email: updatedUser.email,
-    organizationId: updatedUser.organizationId,
-    role: updatedUser.role
-  };
-  
-  const accessToken = generateToken(payload, "access");
-  const refreshToken = generateToken(payload, "refresh");
+  const payload = buildAuthPayload(updatedUser);
+  const { accessToken, refreshToken } = generateTokenPair(payload);
 
-  // Store Refresh Token Hash
-  const hashedRefresh = await hashPassword(refreshToken);
-  
   await prisma.user.update({
     where: { id: updatedUser.id },
-    data: { refreshTokenHash: hashedRefresh }, // Matches schema
+    data: { refreshTokenHash: await hashPassword(refreshToken) },
   });
 
   return {
@@ -143,7 +120,6 @@ const login = async (data: LoginRequest): Promise<AuthResponse> => {
   const email = data.email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({ where: { email } });
-
   if (!user || !user.passwordHash) {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid email or password");
   }
@@ -152,27 +128,17 @@ const login = async (data: LoginRequest): Promise<AuthResponse> => {
     throw new ApiError(httpStatus.FORBIDDEN, "Please verify your email first");
   }
 
-  const isPasswordValid = await comparePassword(data.password, user.passwordHash);
-  if (!isPasswordValid) {
+  const isValid = await comparePassword(data.password, user.passwordHash);
+  if (!isValid) {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid email or password");
   }
 
-  // Generate Tokens
-  const payload = {
-    userId: user.id,
-    email: user.email,
-    organizationId: user.organizationId,
-    role: user.role
-  };
-
-  const accessToken = generateToken(payload, "access");
-  const refreshToken = generateToken(payload, "refresh");
-
-  const hashedRefresh = await hashPassword(refreshToken);
+  const payload = buildAuthPayload(user);
+  const { accessToken, refreshToken } = generateTokenPair(payload);
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshTokenHash: hashedRefresh }, // Matches schema
+    data: { refreshTokenHash: await hashPassword(refreshToken) },
   });
 
   return {
@@ -189,64 +155,47 @@ const login = async (data: LoginRequest): Promise<AuthResponse> => {
   };
 };
 
-const setLocation = async (data: SetLocationRequest) => {
-  const user = await prisma.user.findUnique({ where: { id: data.userId } });
-  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
-
-  const updatedUser = await prisma.user.update({
-    where: { id: data.userId },
-    data: { location: data.location },
-  });
-
-  return updatedUser;
-};
+/* ------------------------------ Social Login ------------------------------ */
 
 const socialLogin = async (data: SocialLoginRequest): Promise<AuthResponse> => {
-  // 1. Validate Org
   const organization = await prisma.organization.findUnique({
     where: { slug: data.orgSlug },
   });
-  if (!organization) throw new ApiError(httpStatus.NOT_FOUND, "Organization not found");
 
-  // TODO: Validate real token with Google/Apple API
-  // const verifiedPayload = await verifyGoogleToken(data.token);
-  const userInfo = { email: "social-mock@example.com", name: "Social User" }; 
+  if (!organization) {
+    throw new ApiError(httpStatus.NOT_FOUND, "Organization not found");
+  }
 
-  const email = userInfo.email.toLowerCase().trim();
+  // TODO: verify provider token (Google / Apple)
+  const socialUser = {
+    email: "social-mock@example.com",
+    name: "Social User",
+  };
+
+  const email = socialUser.email.toLowerCase().trim();
 
   let user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
-    // Create new user via social
     user = await prisma.user.create({
       data: {
         organizationId: organization.id,
         email,
-        name: userInfo.name,
+        name: socialUser.name,
         role: "USER",
-        isEmailVerified: true, // Social accounts are usually trusted
+        isEmailVerified: true,
         provider: data.provider,
         passwordHash: null,
       },
     });
   }
 
-  // Generate Tokens
-  const payload = {
-    userId: user.id,
-    email: user.email,
-    organizationId: user.organizationId,
-    role: user.role
-  };
-
-  const accessToken = generateToken(payload, "access");
-  const refreshToken = generateToken(payload, "refresh");
-
-  const hashedRefresh = await hashPassword(refreshToken);
+  const payload = buildAuthPayload(user);
+  const { accessToken, refreshToken } = generateTokenPair(payload);
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshTokenHash: hashedRefresh },
+    data: { refreshTokenHash: await hashPassword(refreshToken) },
   });
 
   return {
@@ -263,10 +212,120 @@ const socialLogin = async (data: SocialLoginRequest): Promise<AuthResponse> => {
   };
 };
 
+/* ------------------------------ Set Location ------------------------------ */
+
+const setLocation = async (data: SetLocationRequest) => {
+  const user = await prisma.user.findUnique({ where: { id: data.userId } });
+  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+
+  return prisma.user.update({
+    where: { id: data.userId },
+    data: { location: data.location },
+  });
+};
+
+/* --------------------------- Password Reset Flow --------------------------- */
+
+const forgotPassword = async (
+  data: ForgotPasswordRequest
+): Promise<{ message: string }> => {
+  const email = data.email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user)
+    throw new ApiError(httpStatus.NOT_FOUND, "User with this email does not exist");
+
+  if (user.provider && user.provider !== "email") {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      `This account uses ${user.provider} login`
+    );
+  }
+
+  const code = generateVerificationCode();
+  const expiry = new Date(Date.now() + 15 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordResetCode: code,
+      passwordResetExpiry: expiry,
+    },
+  });
+
+  await sendPasswordResetEmail(email, code);
+
+  return { message: "Password reset code sent to your email" };
+};
+
+const verifyResetOtp = async (
+  data: VerifyResetOtpRequest
+): Promise<{ isValid: boolean }> => {
+  const email = data.email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+
+  if (
+    !user.passwordResetCode ||
+    !user.passwordResetExpiry ||
+    user.passwordResetExpiry < new Date()
+  ) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Reset code expired");
+  }
+
+  if (user.passwordResetCode !== data.code) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Invalid reset code");
+  }
+
+  return { isValid: true };
+};
+
+const resetPassword = async (
+  data: ResetPasswordRequest
+): Promise<{ message: string }> => {
+  if (data.newPassword !== data.confirmPassword) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Passwords do not match");
+  }
+
+  const email = data.email.toLowerCase().trim();
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+
+  if (
+    !user.passwordResetCode ||
+    !user.passwordResetExpiry ||
+    user.passwordResetExpiry < new Date() ||
+    user.passwordResetCode !== data.code
+  ) {
+    throw new ApiError(httpStatus.BAD_REQUEST, "Invalid or expired reset token");
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: await hashPassword(data.newPassword),
+      passwordResetCode: null,
+      passwordResetExpiry: null,
+      isEmailVerified: true,
+    },
+  });
+
+  return { message: "Password reset successfully" };
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                   Exports                                  */
+/* -------------------------------------------------------------------------- */
+
 export const authServices = {
   signUp,
   verifyEmail,
   login,
-  setLocation,
   socialLogin,
+  setLocation,
+  forgotPassword,
+  verifyResetOtp,
+  resetPassword,
 };
