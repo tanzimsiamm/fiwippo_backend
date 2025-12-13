@@ -1,9 +1,11 @@
-// auth.interface.ts
+import { UserRole } from "@prisma/client";
+
 export interface SignUpRequest {
-  name: string;
+  orgSlug: string; // Required to link user to the correct Organization
   email: string;
   password: string;
   confirmPassword: string;
+  name?: string;
   termsAccepted: boolean;
 }
 
@@ -12,32 +14,34 @@ export interface VerifyEmailRequest {
   code: string;
 }
 
-export interface SetLocationRequest {
-  userId: string;
-  location: string;
-}
-
 export interface LoginRequest {
   email: string;
   password: string;
 }
 
+export interface SetLocationRequest {
+  userId: string;
+  location: string;
+}
+
 export interface SocialLoginRequest {
+  orgSlug: string; // Required
   provider: "google" | "apple";
   token: string;
 }
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  location?: string | undefined;
-  isEmailVerified: boolean;
-}
-
+// Response Interfaces
 export interface AuthResponse {
   token: string;
-  user: User;
+  refreshToken: string;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+    role: UserRole;
+    isEmailVerified: boolean;
+    organizationId: string;
+  };
 }
 
 export interface SignUpResponse {
@@ -50,10 +54,10 @@ export interface VerifyEmailResponse {
   success: boolean;
   message: string;
   token?: string;
-  user?: User;
-}
-
-export interface SetLocationResponse {
-  success: boolean;
-  user: User;
+  refreshToken?: string;
+  user?: {
+    id: string;
+    email: string;
+    isEmailVerified: boolean;
+  };
 }

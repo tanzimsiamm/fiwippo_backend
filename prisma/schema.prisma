@@ -7,17 +7,233 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//////////////////////////////
+// ENUMS
+//////////////////////////////
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  STAFF
+  USER
+  AFFILIATE
+}
+
+enum EventType {
+  EVENT
+  COURSE
+  EXPERIENCE
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+}
+
+enum ItemType {
+  TICKET
+  PRODUCT
+}
+
+enum CommissionStatus {
+  PENDING
+  PAID
+}
+
+//////////////////////////////
+// MULTI-TENANT CORE
+//////////////////////////////
+
+model Organization {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  slug         String   @unique
+  domain       String?
+  logoUrl      String?
+  primaryColor String?
+  currency     String   @default("EUR")
+  languages    String[] @default(["en"])
+
+  stripeAccountId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users    User[]
+  settings OrganizationSettings?
+}
+
+model OrganizationSettings {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @unique @db.ObjectId
+
+  enableSeating       Boolean @default(false)
+  enableAffiliate     Boolean @default(true)
+  enableAIChat        Boolean @default(true)
+  enableSubscriptions Boolean @default(false)
+  enableGiftCards     Boolean @default(false)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+//////////////////////////////
+// AUTH & USERS
+//////////////////////////////
+
 model User {
-  id                String    @id @default(auto()) @map("_id") @db.ObjectId
-  name              String
-  email             String    @unique
-  password          String?
-  location          String?
-  isEmailVerified   Boolean   @default(false)
-  verificationCode  String?
+  id                     String   @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId         String   @db.ObjectId
+  email                  String   @unique
+  passwordHash           String?
+  role                   UserRole @default(USER)
+  name                   String?  // Add this
+  location               String?  // Add this
+  
+  isEmailVerified        Boolean  @default(false)
+  verificationCode       String?
   verificationCodeExpiry DateTime?
-  refreshToken      String?
-  provider          String? 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  provider               String?
+  refreshTokenHash       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+//////////////////////////////
+// EVENTS / COURSES / EXPERIENCES
+//////////////////////////////
+
+model Event {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+
+  title       String
+  description String
+  type        EventType
+  startDate   DateTime
+  endDate     DateTime
+  location    String?
+
+  seatingEnabled Boolean @default(false)
+  seatingMapUrl  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+}
+
+model Ticket {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  eventId String @db.ObjectId
+
+  name     String
+  price    Float
+  currency String
+  quantity Int
+
+  event Event @relation(fields: [eventId], references: [id])
+}
+
+model QRCheckIn {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  ticketId  String   @db.ObjectId
+  scannedAt DateTime
+  deviceId  String
+}
+
+//////////////////////////////
+// E-COMMERCE
+//////////////////////////////
+
+model Product {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+
+  name        String
+  description String
+  price       Float
+  currency    String
+  digital     Boolean
+  stock       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//////////////////////////////
+// ORDERS & PAYMENTS
+//////////////////////////////
+
+model Order {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+  userId         String @db.ObjectId
+
+  totalAmount Float
+  currency    String
+  status      OrderStatus
+
+  stripePaymentId String?
+  affiliateId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  orderId String @db.ObjectId
+
+  type     ItemType
+  refId    String   @db.ObjectId
+  price    Float
+  quantity Int
+  order    Order    @relation(fields: [orderId], references: [id])
+}
+
+//////////////////////////////
+// AFFILIATE / REFERRAL
+//////////////////////////////
+
+model AffiliateClick {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  affiliateId String   @db.ObjectId
+  ip          String
+  createdAt   DateTime @default(now())
+}
+
+model AffiliateCommission {
+  id          String           @id @default(auto()) @map("_id") @db.ObjectId
+  affiliateId String           @db.ObjectId
+  orderId     String           @db.ObjectId
+  amount      Float
+  status      CommissionStatus
+  createdAt   DateTime         @default(now())
+}
+
+//////////////////////////////
+// AI & VECTOR DATA
+//////////////////////////////
+
+model AIConversation {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+  userId         String @db.ObjectId
+
+  messages  Json
+  createdAt DateTime @default(now())
+}
+
+model VectorDocument {
+  id             String @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId String @db.ObjectId
+
+  content   String
+  embedding Float[]
+  createdAt DateTime @default(now())
 }

@@ -23,9 +23,12 @@ export const auth = (
 
     // Attach user to request
     req.user = {
-      userId: decoded.userId,
-      email: decoded.email,
-    };
+  userId: decoded.userId,
+  email: decoded.email,
+  organizationId: decoded.organizationId,
+  role: decoded.role,
+};
+
 
     next();
   } catch (error: any) {

@@ -1,3 +1,6 @@
+import { UserRole } from "@prisma/client";
+import { Request } from "express";
+
 export interface IApiResponse<T = any> {
   success: boolean;
   message: string;
@@ -6,19 +9,21 @@ export interface IApiResponse<T = any> {
   errors?: Array<{ path: string; message: string; }> | undefined;
 }
 
-
 export interface IJwtPayload {
   userId: string;
   email: string;
+  organizationId: string;
+  role: UserRole;
   iat?: number;
   exp?: number;
 }
 
-export interface IAuthRequest {
-  headers: any;
+export interface IAuthRequest extends Request {
   user?: {
     userId: string;
     email: string;
+    organizationId: string;
+    role: UserRole;
   };
 }
 

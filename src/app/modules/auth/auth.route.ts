@@ -1,14 +1,14 @@
 import { Router } from "express";
+import { auth } from "../../middlewares/auth";
+import validateRequest from "../../middlewares/validateRequest";
 import {
   signUpSchema,
   verifyEmailSchema,
-  setLocationSchema,
   loginSchema,
+  setLocationSchema,
   socialLoginSchema,
 } from "./auth.validation";
 import { authController } from "./auth.controller";
-import validateRequest from "../../middlewares/validateRequest";
-import { auth } from "../../middlewares/auth";
 
 const router = Router();
 
@@ -20,14 +20,14 @@ router.post(
   authController.verifyEmail
 );
 
+router.post("/login", validateRequest(loginSchema), authController.login);
+
 router.post(
   "/set-location",
-  auth, // User must be logged in
+  auth, // Protected Route
   validateRequest(setLocationSchema),
   authController.setLocation
 );
-
-router.post("/login", validateRequest(loginSchema), authController.login);
 
 router.post(
   "/social-login",

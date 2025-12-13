@@ -1,53 +1,72 @@
 import bcrypt from "bcryptjs";
+import httpStatus from "http-status";
+import prisma from "../../lib/prisma";
+import ApiError from "../../errors/ApiError";
+import { generateToken } from "../../utils/jwt.util";
+import { hashPassword, comparePassword } from "../../utils/bcrypt.util";
 import {
   SignUpRequest,
   SignUpResponse,
   VerifyEmailRequest,
   VerifyEmailResponse,
-  SetLocationRequest,
-  SetLocationResponse,
   LoginRequest,
   AuthResponse,
   SocialLoginRequest,
+  SetLocationRequest,
 } from "./auth.interface";
-import prisma from "../../lib/prisma";
-import ApiError from "../../errors/ApiError";
-import { comparePassword, hashPassword } from "../../utils/bcrypt.util";
-import { generateToken } from "../../utils/jwt.util";
 
-// Helper to generate 6-digit verification code
+// --- Helpers ---
 const generateVerificationCode = (): string => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Helper to send verification email (implement with your email service)
 const sendVerificationEmail = async (email: string, code: string) => {
-  // TODO: Implement email sending logic
-  console.log(`Verification code for ${email}: ${code}`);
+  // TODO: Integrate actual email service (AWS SES, SendGrid, etc.)
+  console.log(`[DEV] Verification code for ${email}: ${code}`);
 };
+
+// --- Services ---
 
 const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
   const email = data.email.toLowerCase().trim();
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) throw new ApiError(409, "Email already exists");
+  // 1. Validate Organization (Critical for Multi-tenancy)
+  const organization = await prisma.organization.findUnique({
+    where: { slug: data.orgSlug },
+  });
 
+  if (!organization) {
+    throw new ApiError(httpStatus.NOT_FOUND, "Organization not found");
+  }
+
+  // 2. Check if user exists (globally or per-org depending on need, here we check global email)
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  if (existingUser) {
+    throw new ApiError(httpStatus.CONFLICT, "Email already exists");
+  }
+
+  // 3. Prepare data
   const hashedPassword = await hashPassword(data.password);
   const verificationCode = generateVerificationCode();
-  const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+  const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
+  // 4. Create User
   const user = await prisma.user.create({
     data: {
-      name: data.name,
+      organizationId: organization.id, // Linked to found organization
+      name: data.name || null,
       email,
-      password: hashedPassword,
+      passwordHash: hashedPassword, // Matches schema
       isEmailVerified: false,
       verificationCode,
       verificationCodeExpiry,
+      role: "USER",
     },
   });
 
-  // Send verification email
   await sendVerificationEmail(email, verificationCode);
 
   return {
@@ -57,28 +76,28 @@ const signUp = async (data: SignUpRequest): Promise<SignUpResponse> => {
   };
 };
 
-const verifyEmail = async (
-  data: VerifyEmailRequest
-): Promise<VerifyEmailResponse> => {
+const verifyEmail = async (data: VerifyEmailRequest): Promise<VerifyEmailResponse> => {
   const email = data.email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({ where: { email } });
 
-  if (!user) throw new ApiError(404, "User not found");
-  if (user.isEmailVerified) throw new ApiError(400, "Email already verified");
+  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+  if (user.isEmailVerified) throw new ApiError(httpStatus.BAD_REQUEST, "Email already verified");
 
+  // Check code validity
   if (
     !user.verificationCode ||
     !user.verificationCodeExpiry ||
     user.verificationCodeExpiry < new Date()
   ) {
-    throw new ApiError(400, "Verification code expired");
+    throw new ApiError(httpStatus.BAD_REQUEST, "Verification code expired");
   }
 
   if (user.verificationCode !== data.code) {
-    throw new ApiError(400, "Invalid verification code");
+    throw new ApiError(httpStatus.BAD_REQUEST, "Invalid verification code");
   }
 
+  // Update User
   const updatedUser = await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -88,55 +107,33 @@ const verifyEmail = async (
     },
   });
 
+  // Generate Tokens
   const payload = {
     userId: updatedUser.id,
     email: updatedUser.email,
+    organizationId: updatedUser.organizationId,
+    role: updatedUser.role
   };
-
+  
   const accessToken = generateToken(payload, "access");
   const refreshToken = generateToken(payload, "refresh");
 
-  const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+  // Store Refresh Token Hash
+  const hashedRefresh = await hashPassword(refreshToken);
+  
   await prisma.user.update({
     where: { id: updatedUser.id },
-    data: { refreshToken: hashedRefresh },
+    data: { refreshTokenHash: hashedRefresh }, // Matches schema
   });
 
   return {
     success: true,
     message: "Email verified successfully",
     token: accessToken,
+    refreshToken,
     user: {
       id: updatedUser.id,
-      name: updatedUser.name,
       email: updatedUser.email,
-      location: updatedUser.location || undefined,
-      isEmailVerified: updatedUser.isEmailVerified,
-    },
-  };
-};
-
-const setLocation = async (
-  data: SetLocationRequest
-): Promise<SetLocationResponse> => {
-  const user = await prisma.user.findUnique({
-    where: { id: data.userId },
-  });
-
-  if (!user) throw new ApiError(404, "User not found");
-
-  const updatedUser = await prisma.user.update({
-    where: { id: data.userId },
-    data: { location: data.location },
-  });
-
-  return {
-    success: true,
-    user: {
-      id: updatedUser.id,
-      name: updatedUser.name,
-      email: updatedUser.email,
-      location: updatedUser.location || undefined,
       isEmailVerified: updatedUser.isEmailVerified,
     },
   };
@@ -146,93 +143,122 @@ const login = async (data: LoginRequest): Promise<AuthResponse> => {
   const email = data.email.toLowerCase().trim();
 
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.password)
-    throw new ApiError(401, "Invalid email or password");
 
-  if (!user.isEmailVerified)
-    throw new ApiError(403, "Please verify your email first");
+  if (!user || !user.passwordHash) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid email or password");
+  }
 
-  const match = await comparePassword(data.password, user.password);
-  if (!match) throw new ApiError(401, "Invalid email or password");
+  if (!user.isEmailVerified) {
+    throw new ApiError(httpStatus.FORBIDDEN, "Please verify your email first");
+  }
 
+  const isPasswordValid = await comparePassword(data.password, user.passwordHash);
+  if (!isPasswordValid) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid email or password");
+  }
+
+  // Generate Tokens
   const payload = {
     userId: user.id,
     email: user.email,
+    organizationId: user.organizationId,
+    role: user.role
   };
 
   const accessToken = generateToken(payload, "access");
   const refreshToken = generateToken(payload, "refresh");
 
-  const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+  const hashedRefresh = await hashPassword(refreshToken);
+
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken: hashedRefresh },
+    data: { refreshTokenHash: hashedRefresh }, // Matches schema
   });
 
   return {
     token: accessToken,
+    refreshToken,
     user: {
       id: user.id,
-      name: user.name,
       email: user.email,
-      location: user.location || undefined,
+      name: user.name,
+      role: user.role,
       isEmailVerified: user.isEmailVerified,
+      organizationId: user.organizationId,
     },
   };
 };
 
+const setLocation = async (data: SetLocationRequest) => {
+  const user = await prisma.user.findUnique({ where: { id: data.userId } });
+  if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+
+  const updatedUser = await prisma.user.update({
+    where: { id: data.userId },
+    data: { location: data.location },
+  });
+
+  return updatedUser;
+};
+
 const socialLogin = async (data: SocialLoginRequest): Promise<AuthResponse> => {
-  // TODO: Verify the token with Google/Apple APIs
-  // For now, this is a placeholder implementation
+  // 1. Validate Org
+  const organization = await prisma.organization.findUnique({
+    where: { slug: data.orgSlug },
+  });
+  if (!organization) throw new ApiError(httpStatus.NOT_FOUND, "Organization not found");
 
-  let userInfo: { email: string; name: string };
-
-  // Verify token with provider (implement actual verification)
-  if (data.provider === "google") {
-    // Verify Google token and extract user info
-    userInfo = { email: "user@example.com", name: "User Name" };
-  } else {
-    // Verify Apple token and extract user info
-    userInfo = { email: "user@example.com", name: "User Name" };
-  }
+  // TODO: Validate real token with Google/Apple API
+  // const verifiedPayload = await verifyGoogleToken(data.token);
+  const userInfo = { email: "social-mock@example.com", name: "Social User" }; 
 
   const email = userInfo.email.toLowerCase().trim();
 
   let user = await prisma.user.findUnique({ where: { email } });
 
   if (!user) {
+    // Create new user via social
     user = await prisma.user.create({
       data: {
-        name: userInfo.name,
+        organizationId: organization.id,
         email,
-        isEmailVerified: true,
+        name: userInfo.name,
+        role: "USER",
+        isEmailVerified: true, // Social accounts are usually trusted
         provider: data.provider,
+        passwordHash: null,
       },
     });
   }
 
+  // Generate Tokens
   const payload = {
     userId: user.id,
     email: user.email,
+    organizationId: user.organizationId,
+    role: user.role
   };
 
   const accessToken = generateToken(payload, "access");
   const refreshToken = generateToken(payload, "refresh");
 
-  const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+  const hashedRefresh = await hashPassword(refreshToken);
+
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken: hashedRefresh },
+    data: { refreshTokenHash: hashedRefresh },
   });
 
   return {
     token: accessToken,
+    refreshToken,
     user: {
       id: user.id,
-      name: user.name,
       email: user.email,
-      location: user.location || undefined,
+      name: user.name,
+      role: user.role,
       isEmailVerified: user.isEmailVerified,
+      organizationId: user.organizationId,
     },
   };
 };
@@ -240,7 +266,7 @@ const socialLogin = async (data: SocialLoginRequest): Promise<AuthResponse> => {
 export const authServices = {
   signUp,
   verifyEmail,
-  setLocation,
   login,
+  setLocation,
   socialLogin,
 };

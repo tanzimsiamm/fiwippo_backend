@@ -25,7 +25,10 @@ const verifyEmail = catchAsync(async (req: Request, res: Response) => {
 });
 
 const setLocation = catchAsync(async (req: Request, res: Response) => {
-  const result = await authServices.setLocation(req.body);
+  const result = await authServices.setLocation({
+    userId: req.user!.userId,
+    location: req.body.location,
+  });
 
   sendSuccessResponse(res, {
     statusCode: httpStatus.OK,
