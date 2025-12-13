@@ -8,10 +8,6 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
 [![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white)](https://www.prisma.io/)
 
-**Client:** ASSOCIAZIONE DI PROMOZIONE SOCIALE AKRAVITA ETS  
-**Development Timeline:** 17 Weeks  
-**Current Phase:** Backend Foundation (Week 1-4)
-
 ---
 
 ## 📋 Table of Contents
