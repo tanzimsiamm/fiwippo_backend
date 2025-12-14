@@ -272,7 +272,7 @@ backend/
 - **Framework:** Express.js 
 - **Language:** TypeScript 
 - **Database:** MongoDB 
-- **ORM:** Prisma 5
+- **ORM:** Prisma 
 
 ### Security & Authentication
 - **Authentication:** JWT (jsonwebtoken)
