@@ -65,12 +65,12 @@ const socialLogin = catchAsync(async (req: Request, res: Response) => {
 
 //  Password Reset Flow
 const forgotPassword = catchAsync(async (req: Request, res: Response) => {
-  const result = await authServices.forgotPassword(req.body.email);
+  const result = await authServices.forgotPassword(req.body);
 
   sendSuccessResponse(res, {
     statusCode: httpStatus.OK,
     message: result.message,
-    data: result,
+    data: null,
   });
 });
 
@@ -79,7 +79,7 @@ const verifyResetOtp = catchAsync(async (req: Request, res: Response) => {
 
   sendSuccessResponse(res, {
     statusCode: httpStatus.OK,
-    message: result.message,
+    message: "OTP verified successfully",
     data: result,
   });
 });
@@ -90,7 +90,7 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
   sendSuccessResponse(res, {
     statusCode: httpStatus.OK,
     message: result.message,
-    data: result,
+    data: null,
   });
 });
 

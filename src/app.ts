@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
-import mongoSanitize from "express-mongo-sanitize";
+// import mongoSanitize from "express-mongo-sanitize";
 
 import router from "./app/routes";
 import GlobalErrorHandler from "./app/middlewares/globalErrorHandler";
@@ -36,8 +36,12 @@ app.use(helmet());                      // Secure headers
 app.use(express.json());                // Parse JSON request bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use(apiLimiter);                    // Apply rate limiter globally
-app.use(mongoSanitize());               // Sanitize requests to prevent MongoDB operator injection
-
+// app.use(mongoSanitize()); app.use(
+//   mongoSanitize({
+//     replaceWith: "_",    
+//     allowDots: false,
+//   })
+// );
 // ----------------------
 // Health Check
 // ----------------------

@@ -51,17 +51,15 @@ export const forgotPasswordSchema = z.object({
 
 export const verifyResetOtpSchema = z.object({
   email: z.string().email("Please provide a valid email"),
-  code: z.string().length(6, "Reset code must be 6 digits"),
+  code: z.string().min(6).max(6),
 });
 
-export const resetPasswordSchema = z
-  .object({
-    email: z.string().email("Please provide a valid email"),
-    code: z.string().length(6, "Reset code must be 6 digits"),
-    newPassword: z.string().min(6).max(32),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  });
+export const resetPasswordSchema = z.object({
+  email: z.string().email("Please provide a valid email"),
+  code: z.string().min(6).max(6),
+  newPassword: z.string().min(6).max(32),
+  confirmPassword: z.string(),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  path: ["confirmPassword"],
+  message: "Passwords do not match",
+});
